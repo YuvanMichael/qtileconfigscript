@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+echo "You must be the only user on the system and have sudo permission. Root must be disabled."
+sleep 3
+echo "Otherwise, you'll not be able to log in."
+
+
+echo "################################################################"
+echo "## Syncing the repos and installing 'dialog' if not installed ##"
+echo "################################################################"
+sudo pacman --noconfirm --needed -Syu dialog || error "Error syncing the repos."
+
+
+addrepo() { \
+    echo "#########################################################"
+    echo "## Adding the DTOS core repository to /etc/pacman.conf ##"
+    echo "#########################################################"
+    grep -qxF "[dtos-core-repo]" /etc/pacman.conf ||
+        (echo "[dtos-core-repo]"; echo "SigLevel = Required DatabaseOptional"; \
+        echo "Server = https://gitlab.com/dtos/\$repo/-/raw/main/\$arch") | sudo tee -a /etc/pacman.conf
+}
+
+addrepo || error "Error adding DTOS repo to /etc/pacman.conf."
+
+addkeyserver() { \
+    echo "#######################################################"
+    echo "## Adding keyservers to /etc/pacman.d/gnupg/gpg.conf ##"
+    echo "#######################################################"
+    grep -qxF "keyserver.ubuntu.com:80" /etc/pacman.d/gnupg/gpg.conf || echo "keyserver hkp://keyserver.ubuntu.com:80" | sudo tee -a /etc/pacman.d/gnupg/gpg.conf
+    grep -qxF "keyserver.ubuntu.com:443" /etc/pacman.d/gnupg/gpg.conf || echo "keyserver hkps://keyserver.ubuntu.com:443" | sudo tee -a /etc/pacman.d/gnupg/gpg.conf
+}
+
+addkeyserver || error "Error adding keyservers to /etc/pacman.d/gnupg/gpg.conf"
+
+receive_key() { \
+    local _pgpkey="C71486C31555B12E"
+    echo "#####################################"
+    echo "## Adding PGP key $_pgpkey ##"
+    echo "#####################################"
+    sudo pacman-key --recv-key $_pgpkey
+    sudo pacman-key --lsign-key $_pgpkey
+}
+
+receive_key || error "Error receiving PGP key $_pgpkey"
+
+# Let's install each package listed in the pkglist.txt file.
+sudo pacman --needed --ask 4 -Sy - < pkglist.txt || error "Failed to install required packages."
+
+echo "################################################################"
+echo "## Copying DTOS configuration files from /etc/dtos into \$HOME ##"
+echo "################################################################"
+[ ! -d /etc/dtos ] && sudo mkdir /etc/dtos
+[ -d /etc/dtos ] && mkdir ~/dtos-backup-$(date +%Y.%m.%d-%H%M) && cp -Rf /etc/dtos ~/dtos-backup-$(date +%Y.%m.%d-%H%M)
+[ ! -d ~/.config ] && mkdir ~/.config
+[ -d ~/.config ] && mkdir ~/.config-backup-$(date +%Y.%m.%d-%H%M) && cp -Rf ~/.config ~/.config-backup-$(date +%Y.%m.%d-%H%M)
+cd /etc/dtos && cp -Rf . ~ && cd -
+
+
+PS3='Set default user shell (enter number): '
+shells=("fish" "bash" "zsh" "quit")
+select choice in "${shells[@]}"; do
+    case $choice in
+         fish | bash | zsh)
+            sudo chsh $USER -s "/bin/$choice" && \
+            echo -e "$choice has been set as your default USER shell. \
+                    \nLogging out is required for this take effect."
+            break
+            ;;
+         quit)
+            echo "User quit without changing shell."
+            break
+            ;;
+         *)
+            echo "invalid option $REPLY"
+            ;;
+    esac
+done
+
+# Disable the current login manager
+sudo systemctl disable $(grep '/usr/s\?bin' /etc/systemd/system/display-manager.service | awk -F / '{print $NF}') || echo "Cannot disable current display manager."
+# Enable sddm as login manager
+sudo systemctl enable sddm
+echo "###################################"
+echo "## Enable sddm as login manager. ##"
+echo "###################################"
+
+## Make multicolor-sddm-theme the default sddm theme ##
+# This is the sddm system configuration file.
+[ -f "/usr/lib/sddm/sddm.conf.d/default.conf" ] && \
+    sudo cp /usr/lib/sddm/sddm.conf.d/default.conf /usr/lib/sddm/sddm.conf.d/default.conf.backup && \
+    sudo sed -i 's/^Current=*.*/Current=multicolor-sddm-theme/g' /usr/lib/sddm/sddm.conf.d/default.conf
+
+# This is the sddm local configuration file.
+[ -f "/etc/sddm.conf" ] && \
+    sudo cp /etc/sddm.conf /etc/sddm.conf.backup && \
+    sudo sed -i 's/^Current=*.*/Current=multicolor-sddm-theme/g' /etc/sddm.conf
+
+# Create a local configuration file if it doesn't exist.
+# Standard Arch Linux does not create this file by default.
+[ ! -f "/etc/sddm.conf" ] && \
+    sudo cp /usr/lib/sddm/sddm.conf.d/default.conf /etc/sddm.conf || echo "Default sddm system config file is not found."
+
+# ArcoLinux B Awesome uses this config location.
+[ -f "/etc/sddm.conf.d/kde_settings.conf" ] && \
+    sudo cp /etc/sddm.conf.d/kde_settings.conf /etc/sddm.conf.d/kde_settings.backup && \
+    sudo sed -i 's/^Current=*.*/Current=multicolor-sddm-theme/g' /etc/sddm.conf.d/kde_settings.conf
+
+echo "You gotta git clone my config and copy it. Then create a qtile folder in .config and paste my config in it"
+sleep 3
+echo "Do Super+Enter or Windows key and enter to get a terminal in qtile. Do sudo pcmanfm for graphical folder management"
+sleep 3
+echo "After that, get a new terminal with Super+Enter or Windows key and enter. And reboot"
+sleep 3
+echo "Oh! and for the complete experience install doom emacs using my script emacsinstall"
+sleep 3
+echo "Please install optional dependencies for qtile to make sure everything works."
+sleep 3
+echo "######################"
+echo "## Installing qtile ##"
+echo "######################"
+sudo pacman -S python
+sudo pacman -S powerline
+sudo pacman -S qtile
